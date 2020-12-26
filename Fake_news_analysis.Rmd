@@ -1,0 +1,566 @@
+---
+title: '** Fake News Analysis **'
+author: "Atul Kotecha"
+date: "08/04/2020"
+output: 
+  pdf_document:    fig_width: 5
+    fig_height: 3.5
+    fig_caption: yes
+    latex_engine: xelatex
+    keep_tex: yes
+subtitle: BUAN6356 Project
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache = TRUE, include = FALSE)
+```
+#                                       **Abstact**
+
+In this era of technology content such as fake news or fake reviews can be really deceptive and highly dangerous for online users.Fake news can create havoc while fake reviews can impact consumers and stores negatively. The objective of this project is to build different algorithms that can flag a content based only on its content. By doing so, natural language processing (NLP) will be used to detect the fake news or review. One of the important goal is to compare the results from different model algorithms and report an analysis of findings. In this project, 3 different classifiers are explored and results are presented.
+
+***
+
+## 1. Introduction : 
+Misinformation, disinformation or false information was spread through word of mouth or rarely through traditional media. However, more recently social media or digital media rumors such as, memes, edited videos or fake propagandas are creating havoc. There have been lot of cases of mob violence, suicides because of misinformation circulated over the social media.  It is believed that, an outcome of 2016 US Presidential elections was impacted by circulation of fake news[1]. Artificial intelligence is found to be source of many of the fake news. If we can detect these fake news, we can eliminate them and curb the issues caused by fake news. 
+
+I chose this topic because elections are coming up and there will be a lot of fake news circulating on the internet. These news affect both liberals and conservatives. Elimination of fake news may lead to victory of deserving candidate. In this experiment, focus will be only on content matter and all other signals, such as sources of news,dates of report will be ignored.
+
+*Null hypothesis:* Fakeness of news story doesn’t depend on its structure or language / tone (sentiment). 
+
+
+![Flow for Classification](/Users/ckoteca/Desktop/MS/Summer 2020/BA with R/R Project/Final Project/Flow.JPG)  
+
+## 2. Data Visualization
+
+### 2.1 Dataset
+
+The dataset used for this project is taken from an open Kaggle dataset[2].Real news and fake news data is given in the form of two separate datasets consisting around 20000 instances each.Per Author of dataset [3,4], real news dataset was gathered from certifiable sources; Reuters.com (News site) is source of most of the real news. Fake news are collected from various sources. Different inconsistent sites flagged by Politifact (a reality checking association in the USA) and Wikipedia are sources for fake news. The dataset contains various kinds of articles on various points, but most of articles center around political and World news subjects.There are around 40000 instances of data available for modeling . 
+Labels 'Real' & 'Fake' are assigned to each instance of real & fake news dataset respectively. Collection of these 40000 articles is then shuffled and split into 75% of training and 25% of test data.  
+Link to Dataset - https://utdallas.box.com/s/q6fyh1kxgo0qbcwsdm4bfnw57ittnu8n
+
+*1. Title* - Gives title of News  
+*2. Text* - This column contains actual news.  
+*3. Subject* - This column gives information about genre of news  
+*4. Date* - Date published  
+
+```{r Loading Packages, warning=TRUE, include=FALSE}
+if(!require("pacman"))install.packages("pacman")
+pacman::p_load(readr,dplyr,stringr,ggplot2,corrplot,tidyr,tm,textstem,
+               tidytext,wordcloud2,pROC,ROCR,data.table,naivebayes,randomForest,caret)
+search()
+
+```
+
+
+ 
+```{r Data extraction, include=FALSE}
+#From this code chunk, data from CSV files will be stored in data frames.
+
+fake <- fread("Fake.csv")
+real <- fread("True.csv")          
+```
+
+
+```{r Data View, eval=FALSE, include=FALSE}
+#This code chunk will give brief idea about data
+
+#head(fake)
+#haed(real)
+glimpse(fake)         #Glimpse is suitable than 'str' and 'head'
+glimpse(real)
+```
+
+
+```{r Category Assignment, include=FALSE}
+
+fake$category <- 'Fake'
+real$category <- 'Real'
+
+```
+
+
+```{r Summary, echo=FALSE}
+#Data exploration with addition of category
+
+#View(fake[1:10,])
+#View(real[1:10,])
+glimpse(fake[1:2,])
+glimpse(real[1:2,])
+
+```
+
+```{r Combine Data Frames, include=FALSE}
+#Both the data frames are combined to form single data frame
+
+merged_news <- rbind(fake, real)
+str(merged_news)
+```
+
+
+```{r Overall Count, echo=FALSE, warning=FALSE}
+#This code will chunk looks into count of real and fake news. From below chart, the data seems balanced between categories.
+
+merged_news$category <- as.factor(merged_news$category)
+ggplot(merged_news, aes(x = category, fill = category)) + 
+    geom_bar() 
+```
+
+
+```{r Check For missing values, include=FALSE}
+
+#Blank cells in data are replaced by "NA" and using summary(is.na) function number of missing values can be found.
+
+merged_news <- merged_news %>% mutate_all(na_if,"")
+summary(is.na(merged_news))
+
+####There are 631 missing values in Text
+
+```
+
+
+```{r Grouping news by subject, include=FALSE}
+
+#One more categorical variable in data is 'Subject'. It determines the nature of the news. Below code chunk gives news count based on subject.
+
+merged_news$subject <- as.factor(merged_news$subject)
+
+
+news_sub <- merged_news %>%
+              group_by(subject) %>%
+              count(sort = TRUE) %>%
+              rename(count = n)         
+#Creating variable containing subject and its count
+
+#barplot(news_sub$n,names.arg = news_sub$subject,
+#xlab = "Subject",ylab = "Count",main = "Subjectwise 
+#News Distribution",col="Blue")
+
+ggplot(data=news_sub, aes(x=reorder(subject, -count), y=news_sub$count)) +
+  geom_bar(stat="identity", fill="steelblue")+
+  geom_text(aes(label=count), vjust=1.6, color="white", size=3.5)+
+  theme(axis.text = element_text(angle = 90))+
+  xlab('Subject') +
+  ylab('Count')
+
+```
+### 2.1 Category-wise Subject Distribution
+Following graph shows count of articles with subject-wise and category-wise distribution
+
+![Category-wise Subject Distribution](/Users/ckoteca/Desktop/MS/Summer 2020/BA with R/R Project/Final Project/Category wise Subjects-1.png)  
+```{r Category wise Subjects, echo=FALSE}
+ggplot(merged_news, aes(x=subject, fill = category)) +
+  geom_bar(alpha = 0.5) +
+  theme(axis.text = element_text(angle = 90))
+
+```
+Fake news and Real news are of different genre.
+
+
+```{r Combining Text Data, include=FALSE}
+#In order to do text mining, lets combine the texts together. 'Title' and 'Text' columns have text in them. Below chunk combines them.
+
+fin_news <- merged_news %>% 
+  select(title, text, category) %>%
+  unite(col = text ,title, text, sep = ' ') %>% # Combine 'Title' & Text'
+  mutate(ID = as.character(1:nrow(merged_news)))   #Add a coumn for ID
+
+glimpse(fin_news)
+#tail(fin_news)
+
+
+```
+
+### 2.3 Sentiment Analysis
+Following graph shows how are the sentiments of words in 'Real news' and 'Fake news'
+
+
+![Sentiment Analysis](/Users/ckoteca/Desktop/MS/Summer 2020/BA with R/R Project/Final Project/Sentiment Analysis-1.png) 
+```{r Sentiment Analysis, echo=FALSE}
+
+news_tokens <- as_tibble(fin_news) %>%        #For tokenization data needs to be tibble 
+  unnest_tokens(output = "word", token = "words", input = text) %>%    #Tokenize as word
+  anti_join(stop_words)                       #Removing stop words
+
+
+news_sent <- news_tokens %>%  
+  inner_join(get_sentiments("afinn")) %>%        #Getting 'Afinn' Score of each word
+  group_by(category) %>%  
+  summarise(sentiment = sum(value)) %>% 
+  arrange(sentiment) 
+
+barplot(news_sent$sentiment,names.arg=news_sent$category,xlab="Category",ylab="Sentiment Score",col="blue",
+main="Sentiment Analysis",border="red")
+
+```
+From the graph, it can be seen that 'Fake' news have 'Afinn' score of -30000 . Average score is -1.5 per article and that for Real news is -0.5. That means, Real news are neutral in terms of sentiments and 'Fake' news have high sentiments attached to them.
+
+
+## 3. Data Preprocessing for NLP
+
+Natural Language Processing (NLP) - 
+It contains understanding of spoken or written language by means of computer. PCs figure out how to precisely oversee and apply in general linguistic significance to message extracts like expressions or sentences accurately through natural language processing. 
+
+Following are some terms involved in Data preprocessing -
+
+**Corpora / Corpus** - Corpus is collection of documents containing natural language text. it contains descriptive language in lieu of prescriptive language. Corpus can be used for authenticity, Collocation, Prioritization, of language.
+'tm' package contains function 'corpus' .
+
+**Tokenization** - Tokenization is a process of dividing a text into smaller units called tokens. Tokens can be words, characters, sentences.
+
+**Stopwords** - These are the words that doesn't add much of the meaning to any sentence. Removing such words can be easily ignored for modelling without changing meaning of sentence. Examples of stopwords - to, as, a , an, the, etc
+
+**Stemming** - This is process of bring a word to its root state by removing prefixes or suffixes. Root words are also known as lemma.
+
+In preprocessing of data, data is tokenized, all the punctuation, numbers are removed. Stop words are removed from data frame and words are stemmed into lemma.
+
+```{r Data Cleaning, include=FALSE}
+library(tm)
+
+#Converting Data to Corpus for cleaning
+news_corpus <- VCorpus(VectorSource(fin_news$text))
+
+# Convert text to lower case
+news_corpus <- tm_map(news_corpus, content_transformer(tolower))
+
+# Remove numbers
+news_corpus <- tm_map(news_corpus, removeNumbers)
+
+# Remove Punctuations
+news_corpus <- tm_map(news_corpus, content_transformer(str_remove_all), "[[:punct:]]")
+
+# Remove Whitespace
+news_corpus <- tm_map(news_corpus, stripWhitespace)
+
+```
+
+```{r Text Mining, include=FALSE}
+#Remove Stopwords
+news_corpus <- tm_map(news_corpus, removeWords, stopwords('english'))
+
+#Stemming of words
+news_corpus <- tm_map(news_corpus, stemDocument, language = "english")
+```
+
+## 4. Feature Extraction -
+After preprocessing , high dimensional data is generated. There are huge number of words, terms in document. This will put high burden on model for learning. Also there will be a lot of unnecessary and redundant variables which can affect models accuracy and performance. Hence, it is necessary to reduce number of features from data. There are different feature reducing techniques, most commonly used technique is TF-IDF (Term Frequency - Inverse document Frequency).
+
+### 4.1 Term Frequency -
+This approach uses count of words in the a particular document and thorugh TF score, similarity between documents is calculated.If word is present in a document TF is set to 1 and if it is not in the document it is set to 0. An equal length vector that contains the word counts is used to represent each document. Through TF matrix similarity between documents can be found. For ex. In a sentence - " Business Analytics with R" each word has TF  = 1/4 = 0.25 . 
+
+### 4.2 Inverse Document Frequency -
+IDF is an approach that utilizes counts of words appearing across all documents. It weights how common is a term across all documents.
+IDF = log (N / nt)
+N - Total number of document
+nt - Number of documents were term appeared.
+
+### 4.3 TF- IDF 
+TF-IDF is a weighting metric  frequently used in information extraction and NLP.Values of this matrix are obtained by multiplying TF & IDF values of the term. This matrix gives information about how important a term is to a document. The importance of term increases with its appearance in document, i.e high TF value and is decreased by using inverse frequency. For ex. some terms like 'the', 'then' are often used in sentences. So TF values of these sentence is high but IDF values will be really low or zero. So the importance of these terms become negligible.  
+
+
+**Sparsity ** - Once TF-IDF matrix i.e. document term matrix is generated it has many values that are equal to zero or are really small. The ratio of empty term to all terms in matrix is know as sparsity.
+We use removeSparseTerms() function to remove the sparse terms from matrix. It has user defined threshold. 
+Example, for this project non-sparsed matrix has 185517 terms. After applying threshold of sparse = 0.98, there are 1528 terms. Decrease in threshold will decrease the 'terms' as well but it can also reduce performance of classifiers.  
+```{r Document Term Matrix, include=FALSE}
+news_dtm <- (DocumentTermMatrix(news_corpus,
+                          control = list(weighting =
+                                         function(x)
+                                         weightTfIdf(x, normalize =
+                                                     FALSE))))
+
+
+#Used TF-IDF for feature extraction
+
+inspect(news_dtm)
+```
+
+
+```{r Removing sparse Terms, include=FALSE}
+news_dtm.fin <- (removeSparseTerms(news_dtm, sparse = 0.98))
+inspect(news_dtm.fin)
+```
+
+Once data is preprocessed, lets look at words in real and fake news.
+
+```{r Word Cloud for Fake news, echo=FALSE}
+
+#Convert DTM corpus to 'tidy' data
+news_tidy <- tidy(news_dtm.fin)
+
+
+# Word cloud for Fake News
+set.seed(42)
+news_tidy %>% 
+    inner_join(fin_news, by = c('document' = 'ID')) %>%    #Join by comparing ID of final news and document number
+    select(-text) %>%
+    group_by(term, category) %>%
+    summarize(freq = sum(count)) %>%
+    filter(category == 'Fake') %>%
+    select(-category) %>%
+    arrange(desc(freq)) %>%
+    wordcloud2(size = 1.5,  color='random-dark')
+
+```
+![Fake news word Cloud](/Users/ckoteca/Desktop/MS/Summer 2020/BA with R/R Project/Final Project/Fake.JPG)
+
+![Real news word Cloud](/Users/ckoteca/Desktop/MS/Summer 2020/BA with R/R Project/Final Project/Real.JPG)
+
+
+```{r Word Cloud for Real news, echo=FALSE}
+# Word cloud for Real News
+set.seed(42)
+news_tidy %>% 
+    inner_join(fin_news, by = c('document' = 'ID')) %>% 
+    select(-text) %>%
+    group_by(term, category) %>%
+    summarize(freq = sum(count)) %>%
+    filter(category == 'Real') %>%
+    select(-category) %>%
+    arrange(desc(freq)) %>%
+    wordcloud2(size = 1.5,  color='random-light')
+```
+
+```{r Document Term data frame, include=FALSE}
+news_dtm_df <- as.data.frame(as.matrix(news_dtm.fin))
+
+news_dtm_df <- bind_cols(news_dtm_df,category =fin_news$category)
+#colnames(news_dtm_df) <- paste(colnames(news_dtm_df), "_c", sep = "")
+names(news_dtm_df)[names(news_dtm_df) == 'break'] <- 'break_c'
+names(news_dtm_df)[names(news_dtm_df) == 'next'] <- 'next_c'
+names(news_dtm_df)[names(news_dtm_df) == 'repeat'] <- 'repeat_c'
+
+
+# Changed name of some of the columns as it was generating errors in RF model
+
+
+#Glimpse for data frame
+n <-  ncol(news_dtm_df)
+news_dtm_df[1:10, c(1, 2, 3,n)]
+news_dtm_df[44888:44898, c(1,2,3,n)]
+
+
+```
+
+```{r Data splitting, include=FALSE}
+set.seed(42) 
+sample_size <- floor(0.75 * nrow(news_dtm_df)) 
+index <- sample(nrow(news_dtm_df), size = sample_size)
+
+
+train_news <- news_dtm_df[index,]
+test_news <- news_dtm_df[-index,]
+
+#Check for data balancing among categories
+table(train_news$category)
+table(test_news$category)
+
+```
+
+## 4. Classification Model
+
+### 4.1 Logistic Regression -
+When the dependent variable is binary, logistic is baseline regression analysis model.This is the simple, linear model. All other sophisticated models will be compared with this baseline.This analysis produces S-shaped curve and all the values are between 0 & 1.
+In this model, for each document , words are stored in vectors and these vectors are averaged to form embedding. These embedding first goes through linear equation and then to non linear sigmoid to classify the label.
+                          $$logit (Pi) = B0 + B1x  $$
+ Where ,    
+• i indexes all cases (observations)  
+• pi is the probability that the event occurs in the i th case  
+
+
+```{r Model1 Logistic Regression, cache=TRUE, include=FALSE}
+# Logistic Regression Model
+news_lr <- glm(formula = category ~.,
+              data = train_news,
+              family = 'binomial')
+
+
+summary(news_lr)
+```
+**Summary** :  
+Null deviance:         46606.2442395535  on 33672  degrees of freedom  
+Residual deviance:     0.0000095101  on 32144  degrees of freedom  
+AIC: 3058  
+Residual deviance in this case suggests that algorithm is nearly perfect.
+
+```{r Correlation among variable, include=FALSE}
+# From logistic regression summary, P-value is 1 and Z- value is zero for all predictors.
+# This graphs explore highly correlated variables
+corr.d <- cor( train_news[,-n] )
+corr.d[ lower.tri( corr.d, diag = TRUE ) ] <- NA
+corrplot( corr.d, type = "upper", diag = FALSE )
+```
+
+### 4.2 Random Forest
+It is a supervised learning technique used for both classification and prediction. The ensemble of decision tress form 'forest'. This technique builds multiple decision trees and then combines them to generate more accurate results. 
+It starts with bootstrapping - creating multiple decision trees with randomly selected data samples. Followed by aggregation of these decision trees to increase accuracy. This whole process is called bagging. One of the advantage of this method is default hyperparameters.
+
+![Random Forest Flow](/Users/ckoteca/Desktop/MS/Summer 2020/BA with R/R Project/Final Project/Random Forest.JPG)
+
+
+```{r Model2 Random Forest, cache=TRUE, include=FALSE}
+m <- round(sqrt(ncol(train_news)-1))
+
+news_rf <- randomForest(formula = category ~ .,data = train_news,
+                       ntree = 100,
+                       mtry = m,
+                       method = 'class')
+news_rf  # Model Summary
+
+```
+**Summary** :  
+Type of random forest: classification  
+Number of trees: 100  
+No. of variables tried at each split: 39  
+OOB estimate of  error rate: 0.25%  
+From summary, it can be seen that Random forest is highly accurate to classify this dataset.
+
+
+
+### 4.3 Naive Bayes - 
+This classification technique is based on Bayes' Theorem of Probability. All the variables or features of the data are considered to be independent of each other. This is very fast algorithm. It is very useful for large datasets. By very little training on data, accurate results can be found.Equation for Baye's Theorem is given as :
+
+$$P(Ci|x1,x2,…,xn)=P(x1,x2,…,xn).P(Ci)/P(x1,x2,…,xn)$$
+
+Where,  
+C is the Category to be classified ,  
+x1, …. , xn are variables of a particular data
+
+
+```{r Model3 Naive Bayes, include=FALSE}
+
+news_nb <- naive_bayes(category ~ ., data = train_news)
+
+summary(news_nb) # Model Summary
+
+```
+**Summary ** :  
+- Classes: 2  
+- Samples: 33673   
+- Features: 1531   
+- Conditional distributions:   
+    - Bernoulli: 2  
+    - Gaussian: 1529  
+- Prior probabilities:   
+    - Fake: 0.5235  
+    - Real: 0.4765  
+
+
+## 5. Results 
+
+```{r Prediction, warning=FALSE, include=FALSE}
+test_news$pred_nb <- predict(news_nb, newdata = test_news)
+test_news$pred_lr <- predict(news_lr, newdata = test_news,type = 'response')
+test_news$pred_rf <- predict(news_rf, newdata = test_news,type = 'response')
+```
+
+```{r ROC Curve for Test Data, echo=FALSE}
+#ROC curve of test data
+prediction(as.numeric(test_news$pred_lr), as.numeric(test_news$category)) %>%
+   performance('tpr', 'fpr') %>%
+  plot( col = 'blue', lwd = 2)
+
+prediction(as.numeric(test_news$pred_rf), as.numeric(test_news$category)) %>%
+   performance('tpr', 'fpr') %>%
+  plot(add = TRUE, col = 'green', lwd = 2)
+
+prediction(as.numeric(test_news$pred_nb), as.numeric(test_news$category)) %>%
+    performance('tpr', 'fpr') %>%
+    plot(add = TRUE,col = 'red', lwd = 2)
+
+
+legend(0.65, 0.3, legend=c("Logistic", "Random Forest", "Naive Bayes"),
+      col=c("blue", "green", 'red'), lty = 1, cex = 1.2, box.lty = 0)
+```
+
+
+```{r Threshold for LR, warning=FALSE, include=FALSE}
+# Set Threshold for Logistic Regression Model
+roc(test_news$category, test_news$pred_lr) %>% coords()
+
+test_news$pred_lr <- ifelse(test_news$pred_lr > 0.5, 'Real', 'Fake')
+test_news$pred_lr <- as.factor(test_news$pred_lr)
+```
+
+
+```{r Confusion Martrix, echo=FALSE}
+# Confussion Matrix
+conf_nb <- confusionMatrix(test_news$category, test_news$pred_nb)
+conf_lr <- confusionMatrix(test_news$category, test_news$pred_lr)
+conf_rf <- confusionMatrix(test_news$category, test_news$pred_rf)
+
+bind_rows(as.data.frame(conf_nb$table), as.data.frame(conf_lr$table), as.data.frame(conf_rf$table)) %>% 
+  mutate(Model = rep(c('Naive Bayes', 'Logistic Regression', 'Random Forest'), each = 4)) %>%
+  ggplot(aes(x = Reference, y = Prediction, fill = Freq)) +
+  geom_tile() +
+  labs(x = 'Actual', y = 'Predicted') +
+  scale_fill_gradient(low = "#CCE5FF", high = "#000099") +
+  scale_x_discrete(limits = c('Real', 'Fake'), labels = c('Real' = 'Not Fake', 'Fake' = 'Fake')) +
+  scale_y_discrete(labels = c('Real' = 'Not Fake', 'Fake' = 'Fake')) +
+  facet_grid(. ~ Model) +
+  geom_text(aes(label = Freq), fontface = 'bold') +
+  theme(panel.background = element_blank(),
+        legend.position = 'none',
+        axis.line = element_line(colour = "black"),
+        axis.title = element_text(size = 14, face = 'bold'),
+        axis.text = element_text(size = 11, face = 'bold'),
+        axis.text.y = element_text(angle = 90, hjust = 0.5),
+        strip.background = element_blank(),
+        strip.text = element_text(size = 12, face = 'bold'))
+
+```
+Below is confusion matrix for all 3 algorithms. From this matrix it can be seen that, random forest is detecting True positive and True negative variable very efficiently.  
+
+![Confusion Matrix](/Users/ckoteca/Desktop/MS/Summer 2020/BA with R/R Project/Final Project/Confusion Martrix-1.png)
+
+
+Results of all the algorithms is shown in below table :
+
+```{r Accuracy, echo=FALSE, warning=FALSE}
+accuracy <- c(nb = conf_nb[['overall']]['Accuracy'], 
+         lr = conf_lr[['overall']]['Accuracy'],
+         rf = conf_rf[['overall']]['Accuracy'])
+Specificity  <- c(nb = conf_nb[['byClass']]['Specificity'], 
+               lr = conf_lr[['byClass']]['Specificity'], 
+               rf = conf_rf[['byClass']]['Specificity'])
+sensitivity <- c(nb = conf_nb[['byClass']]['Sensitivity'], 
+            lr = conf_lr[['byClass']]['Sensitivity'],
+            rf = conf_rf[['byClass']]['Sensitivity'])
+
+result <- data.frame(Model = c('Naive Bayes', 'Logistic Regression', 'Random Forest'),
+           Accuracy = accuracy,
+           Sensitivity= sensitivity,
+           Specificity  = Specificity ,
+           row.names = NULL)
+
+knitr::kable(result)
+
+```
+
+
+|Model               |  Accuracy| Sensitivity| Specificity|
+|:-------------------|---------:|-----------:|-----------:|
+|Naive Bayes         | 0.8629844|   0.9308967|   0.8082985|
+|Logistic Regression | 0.9832517|   0.9829497|   0.9835821|
+|Random Forest       | 0.9982183|   0.9988028|   0.9975827|
+
+Random forest has highest accuracy to flag the fake news for this dataset. Even though 'Naive Bayes' is fastest method here, the accuracy is poor compared to other models. Accuracy of logistic regression is also very high. 
+
+## 6. Conclusion :
+Data was trained through 3 different algorithms . Random forest classifier has accuracy of 99.8%. This concludes that authenticity of news depends on words used and/or sentiment of the news. Null hypothesis proposed should be rejected.
+
+**Future work ** - There are few issues that needs to be explored   a. With increasing technology bots are also getting smarter. News generated by these AIs many time resembles with genuine news.   b. Polysemy in the texts , which can affect results significantly. Neural network algorithms such as CNN, RNN can be used to tackle these issues.  c.Dataset that is used here is highly skewed. Less-skewed data will produce accurate results.
+
+## 7. Acknowledgement :
+I would like to thank Prof. Sourav Chatterjee and TA of MIS 6356.5U2 for their guidance throughout the semester.
+
+## 8. References :
+[1] Allcott, H., and Gentzkow, M., Social Media and Fake News in the 2016 Election, https: //web.stanford.edu/˜gentzkow/research/fakenews.pdf
+
+[2]  Kaggle, Getting Real About Fake News, https://www.kaggle.com/clmentbisaillon/fake-and-real-news-dataset
+
+[3] Ahmed H, Traore I, Saad S. “Detecting opinion spams and fake news using text classification”, Journal of Security and Privacy, Volume 1, Issue 1, Wiley, January/February 2018.
+
+[4] Ahmed H, Traore I, Saad S. (2017) “Detection of Online Fake News Using N-Gram Analysis and Machine Learning Techniques. In: Traore I., Woungang I., Awad A. (eds) Intelligent, Secure, and Dependable Systems in Distributed and Cloud Environments. ISDDC 2017. Lecture Notes in Computer Science, vol 10618. Springer, Cham (pp. 127-138).
+
+[5] How to Build fake news classification model, https://opendatascience.com/how-to-build-a-fake-news-classification-model/
+
+[6] Intoduction to NLP in R, DataCamp, https://campus.datacamp.com/courses/introduction-to-natural-language-processing-in-r/
